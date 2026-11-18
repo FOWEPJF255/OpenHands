@@ -99,10 +99,61 @@ describe("Windows workspace discovery", () => {
       "C:\\Users\\me\\proj",
     );
     expect(command).toBe(
-      'dir /b /s /a:-d 2>nul | findstr /v /i /c:"\\node_modules\\" /c:"\\.git\\" /c:"\\src\\generated\\" | sort',
+      'dir /b /s /a:-d 2>nul | findstr /v /i /l /c:"\\\\node_modules\\\\" /c:"\\\\.git\\\\" /c:"\\\\src\\\\generated\\\\" | sort /M 65536',
     );
     expect(command).not.toMatch(/head|\/dev\/null|^find /);
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "excludes directories when cmd.exe runs the generated pipeline",
+    () => {
+      const workspace = mkdtempSync(join(tmpdir(), "windows-discovery-"));
+      try {
+        for (const directory of [
+          "src",
+          "src/generated",
+          "node_modules",
+          ".git",
+        ]) {
+          mkdirSync(join(workspace, directory), { recursive: true });
+          writeFileSync(join(workspace, directory, "file.txt"), "fixture");
+        }
+        const output = execSync(
+          buildWindowsWorkspaceFileListCommand(options, workspace),
+          { cwd: workspace, encoding: "utf8", shell: "cmd.exe" },
+        );
+        expect(
+          parseWindowsWorkspaceFileList(output, workspace, options).paths,
+        ).toEqual(["src/file.txt"]);
+        expect(output).not.toContain("node_modules");
+        expect(output).not.toContain(".git");
+        expect(output).not.toContain("generated");
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform !== "win32")(
+    "keeps files when an exclusion appears in the workspace root",
+    () => {
+      const base = mkdtempSync(join(tmpdir(), "windows-discovery-"));
+      const workspace = join(base, "node_modules", "project");
+      try {
+        mkdirSync(workspace, { recursive: true });
+        writeFileSync(join(workspace, "file.txt"), "fixture");
+        const output = execSync(
+          buildWindowsWorkspaceFileListCommand(options, workspace),
+          { cwd: workspace, encoding: "utf8", shell: "cmd.exe" },
+        );
+        expect(
+          parseWindowsWorkspaceFileList(output, workspace, options).paths,
+        ).toEqual(["file.txt"]);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("skips an exclusion that already appears in the workspace root", () => {
     const command = buildWindowsWorkspaceFileListCommand(
@@ -110,7 +161,7 @@ describe("Windows workspace discovery", () => {
       "C:\\build\\node_modules\\proj",
     );
     expect(command).not.toContain("node_modules");
-    expect(command).toContain('/c:"\\.git\\"');
+    expect(command).toContain('/c:"\\\\.git\\\\"');
   });
 
   it("drops patterns that cmd.exe could misread", () => {
@@ -119,7 +170,7 @@ describe("Windows workspace discovery", () => {
       "C:\\proj",
     );
     expect(command).toBe(
-      'dir /b /s /a:-d 2>nul | findstr /v /i /c:"\\ok\\" | sort',
+      'dir /b /s /a:-d 2>nul | findstr /v /i /l /c:"\\\\ok\\\\" | sort /M 65536',
     );
   });
 
